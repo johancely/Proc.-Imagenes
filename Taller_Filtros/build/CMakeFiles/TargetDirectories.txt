@@ -1,0 +1,3 @@
+C:/Users/Johan/Documents/J. Trabajos - Universidad/Procesamineto de Imagenes/Taller_Filtros/build/CMakeFiles/Taller_Filtros.dir
+C:/Users/Johan/Documents/J. Trabajos - Universidad/Procesamineto de Imagenes/Taller_Filtros/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Johan/Documents/J. Trabajos - Universidad/Procesamineto de Imagenes/Taller_Filtros/build/CMakeFiles/ZERO_CHECK.dir

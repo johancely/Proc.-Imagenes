@@ -1,0 +1,10 @@
+^C:\USERS\JOHAN\DOCUMENTS\J. TRABAJOS - UNIVERSIDAD\PROCESAMINETO DE IMAGENES\TALLER_FILTROS\BUILD\CMAKEFILES\45C0AF6C7B06B6B6D0FC6F41B30908A5\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/Johan/Documents/J. Trabajos - Universidad/Procesamineto de Imagenes/Taller_Filtros" "-BC:/Users/Johan/Documents/J. Trabajos - Universidad/Procesamineto de Imagenes/Taller_Filtros/build" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "C:/Users/Johan/Documents/J. Trabajos - Universidad/Procesamineto de Imagenes/Taller_Filtros/build/Taller_Filtros.slnx"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
