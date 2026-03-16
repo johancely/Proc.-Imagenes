@@ -211,6 +211,28 @@ Mat computeMagnitude(const Mat& gx32F, const Mat& gy32F) {
     return mag;
 }
 
+// Filtro de Mediana Manual (para reducir ruido)
+Mat manualMedianFilter(const Mat& src, int kSize) {
+    Mat dst = src.clone();
+    int edge = kSize / 2;
+    vector<uchar> window(kSize * kSize);
+
+    for (int r = edge; r < src.rows - edge; r++) {
+        for (int c = edge; c < src.cols - edge; c++) {
+            int k = 0;
+            for (int kr = -edge; kr <= edge; kr++) {
+                for (int kc = -edge; kc <= edge; kc++) {
+                    window[k++] = src.at<uchar>(r + kr, c + kc);
+                }
+            }
+            // Ordenamiento manual simple
+            sort(window.begin(), window.end());
+            dst.at<uchar>(r, c) = window[kSize * kSize / 2];
+        }
+    }
+    return dst;
+}
+
 // Aplicar umbral simple
 Mat thresholdImage(const Mat& src32F, float thresholdValue) {
     Mat dst = Mat::zeros(src32F.rows, src32F.cols, CV_8U);
@@ -361,85 +383,101 @@ Mat hysteria(const Mat& nms, float lowThresh, float highThresh) {
 }
 
 int main() {
-    cout << "Iniciando aplicacion de filtros..." << endl;
+    cout << "Iniciando aplicacion de filtros en tiempo real..." << endl;
 
-    Mat img = imread("imagen_sat.jpg", IMREAD_GRAYSCALE);
-    if (img.empty()) {
-        cout << "Error: 'imagen_sat.jpg' no encontrada." << endl;
+    // Abrir la camara (indice 0 por defecto)
+    VideoCapture cap(0);
+    if (!cap.isOpened()) {
+        cerr << "Error: No se pudo abrir la camara." << endl;
         return -1;
     }
 
-    Mat img32F = convertTo32F(img);
+    // Configurar ventana redimensionable
+    namedWindow("Taller Filtros - Tiempo Real", WINDOW_NORMAL);
 
-    // 1. Gaussiano
-    auto kernelGauss = createGaussianKernel(5, 1.4);
-    Mat blur32F = manualConvolve2D(img32F, kernelGauss);
-    Mat blur8U = convertToDisplayable(blur32F);
+    Mat frame, gray, gray32F;
+    const int processingSize = 300; // Tamano reducido para mantener fluidez con filtros manuales
 
-    // 2. Laplaciano
-    auto kernelLaplace = createLaplacianKernel();
-    Mat laplace32F = manualConvolve2D(img32F, kernelLaplace);
-    Mat laplace8U = convertToDisplayableSigned(laplace32F);
+    cout << "Aplicando filtros... Presiona 'q' o 'Esc' para salir." << endl;
 
-    // 3. LoG (Laplacian of Gaussian)
-    Mat log32F = manualConvolve2D(blur32F, kernelLaplace); // Laplace sobre imagen suavizada
-    Mat log8U = convertToDisplayableSigned(log32F);
+    while (true) {
+        cap >> frame;
+        if (frame.empty()) break;
 
-    // 4. Zero Crossings
-    Mat zerocross = findZeroCrossings(log32F, 25.0f); // threshold a ajustar
+        // Redimensionar para que la convolucion manual sea mas rapida
+        Mat frameSmall;
+        resize(frame, frameSmall, Size(processingSize, processingSize));
 
-    // 5. Edges: Sobel
-    auto kernelSobelX = createSobelXKernel();
-    auto kernelSobelY = createSobelYKernel();
-    
-    // Calcular gradiente con base en la imagen suavizada para reducir ruido
-    Mat sobelX32F = manualConvolve2D(blur32F, kernelSobelX);
-    Mat sobelY32F = manualConvolve2D(blur32F, kernelSobelY);
-    Mat sobelMag = computeMagnitude(sobelX32F, sobelY32F);
-    Mat sobel8U = convertToDisplayable(sobelMag);
+        // Convertir a escala de grises
+        cvtColor(frameSmall, gray, COLOR_BGR2GRAY);
+        
+        // --- Reducción de Ruido ---
+        // Aplicar Filtro de Mediana antes de los demás procesos
+        Mat grayDenoisy = manualMedianFilter(gray, 3); 
+        gray32F = convertTo32F(grayDenoisy);
 
-    // 6. Edges: Scharr
-    auto kernelScharrX = createScharrXKernel();
-    auto kernelScharrY = createScharrYKernel();
-    
-    Mat scharrX32F = manualConvolve2D(blur32F, kernelScharrX);
-    Mat scharrY32F = manualConvolve2D(blur32F, kernelScharrY);
-    Mat scharrMag = computeMagnitude(scharrX32F, scharrY32F);
-    Mat scharr8U = convertToDisplayable(scharrMag);
+        // --- Aplicacion de Filtros ---
 
-    // 7. Líneas con el umbral de Sobel
-    Mat linesSobel = thresholdImage(sobelMag, 120.0f); 
+        // 1. Gaussiano
+        auto kernelGauss = createGaussianKernel(5, 1.4);
+        Mat blur32F = manualConvolve2D(gray32F, kernelGauss);
+        Mat blur8U = convertToDisplayable(blur32F);
 
-    // 8. Algoritmo de Canny
-    Mat phase = computePhase(sobelX32F, sobelY32F);
-    Mat nms = nonMaximumSuppression(sobelMag, phase);
-    Mat nms8U = convertToDisplayable(nms);
-    Mat canny = hysteria(nms, 30.0f, 90.0f); 
+        // 2. Laplaciano
+        auto kernelLaplace = createLaplacianKernel();
+        Mat laplace32F = manualConvolve2D(gray32F, kernelLaplace);
+        Mat laplace8U = convertToDisplayableSigned(laplace32F);
 
-    vector<Mat> results = {img, blur8U, laplace8U, log8U, zerocross, sobel8U, scharr8U, linesSobel, nms8U, canny};
-    vector<string> titles = {
-        "1. Original", 
-        "2. Gauss", 
-        "3. Laplace", 
-        "4. LoG", 
-        "5. Zero Crossings",
-        "6. Sobel Mag",
-        "7. Scharr Mag",
-        "8. Lines (Sobel Thresh)",
-        "9. Canny (NMS)",
-        "10. Canny"
-    };
+        // 3. LoG (Laplacian of Gaussian)
+        Mat log32F = manualConvolve2D(blur32F, kernelLaplace);
+        Mat log8U = convertToDisplayableSigned(log32F);
 
-    // Crear cuadrícula: 5 columnas x 2 filas, de 350x350 cada celda
-    Mat grid = buildGrid(results, titles, 5, 350, 350);
+        // 4. Zero Crossings
+        Mat zerocross = findZeroCrossings(log32F, 10.0f);
 
-    // Mostrar ventana única redimensionable
-    namedWindow("Taller Filtros - Resultados", WINDOW_AUTOSIZE);
-    imshow("Taller Filtros - Resultados", grid);
-    imwrite("Resultados_Cuadricula.jpg", grid);
+        // 5. Sobel
+        auto kernelSobelX = createSobelXKernel();
+        auto kernelSobelY = createSobelYKernel();
+        Mat sobelX32F = manualConvolve2D(blur32F, kernelSobelX);
+        Mat sobelY32F = manualConvolve2D(blur32F, kernelSobelY);
+        Mat sobelMag = computeMagnitude(sobelX32F, sobelY32F);
+        Mat sobel8U = convertToDisplayable(sobelMag);
 
-    cout << "Presiona cualquier tecla en las ventanas para salir..." << endl;
-    waitKey(0);
+        // 6. Scharr
+        auto kernelScharrX = createScharrXKernel();
+        auto kernelScharrY = createScharrYKernel();
+        Mat scharrX32F = manualConvolve2D(blur32F, kernelScharrX);
+        Mat scharrY32F = manualConvolve2D(blur32F, kernelScharrY);
+        Mat scharrMag = computeMagnitude(scharrX32F, scharrY32F);
+        Mat scharr8U = convertToDisplayable(scharrMag);
 
+        // 7. Umbral Sobel
+        Mat linesSobel = thresholdImage(sobelMag, 80.0f);
+
+        // 8. Canny
+        Mat phase = computePhase(sobelX32F, sobelY32F);
+        Mat nms = nonMaximumSuppression(sobelMag, phase);
+        Mat canny = hysteria(nms, 20.0f, 60.0f);
+
+        // lista de resultados
+        vector<Mat> results = {frameSmall, grayDenoisy, blur8U, log8U, zerocross, sobel8U, scharr8U, linesSobel, canny};
+        vector<string> titles = {
+            "Original", "Sin Ruido (Mediana)", "Gauss", "LoG", "Zero Crossings", 
+            "Sobel Mag", "Scharr Mag", "Sobel Threshold", "Canny"
+        };
+
+        // Crear cuadricula (3x3 en este caso)
+        Mat grid = buildGrid(results, titles, 3, 300, 300);
+
+        // Mostrar
+        imshow("Taller Filtros - Tiempo Real", grid);
+
+        // Salir con 'q' o Esc
+        char c = (char)waitKey(1);
+        if (c == 27 || c == 'q' || c == 'Q') break;
+    }
+
+    cap.release();
+    destroyAllWindows();
     return 0;
 }
