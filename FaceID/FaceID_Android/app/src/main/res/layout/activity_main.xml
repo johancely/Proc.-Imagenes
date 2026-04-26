@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101820"
+    tools:context=".MainActivity">
+
+    <!-- Vista de camara de OpenCV. Aqui se muestra el video en tiempo real. -->
+    <org.opencv.android.JavaCameraView
+        android:id="@+id/camera_view"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="visible"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/bottom_bar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Estado general: le dice al usuario que paso o que debe hacer. -->
+    <TextView
+        android:id="@+id/tv_status"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="FaceID PCA listo"
+        android:textColor="#F2F5F7"
+        android:textSize="16sp"
+        android:textAlignment="center"
+        android:padding="12dp"
+        android:background="#172A3A"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Resultado del reconocimiento. -->
+    <TextView
+        android:id="@+id/tv_identity"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#00C853"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:padding="8dp"
+        android:layout_marginTop="64dp"
+        android:background="#99000000"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Contador de fotos capturadas para entrenar. -->
+    <TextView
+        android:id="@+id/tv_capture_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#FFD166"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:padding="8dp"
+        android:visibility="gone"
+        android:background="#99000000"
+        android:layout_marginBottom="8dp"
+        app:layout_constraintBottom_toTopOf="@+id/bottom_bar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Botones principales de la app. -->
+    <LinearLayout
+        android:id="@+id/bottom_bar"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:background="#172A3A"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <!-- Entra a modo captura y reinicia dataset. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_capture"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:text="Capturar"
+                android:textSize="13sp"
+                android:layout_marginEnd="4dp"
+                app:backgroundTint="#0F6BA8"
+                app:cornerRadius="12dp" />
+
+            <!-- Ejecuta entrenamiento PCA con las muestras guardadas. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_train"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:text="Entrenar PCA"
+                android:textSize="13sp"
+                android:layout_marginHorizontal="4dp"
+                app:backgroundTint="#2A9D8F"
+                app:cornerRadius="12dp" />
+
+            <!-- Activa verificacion facial en tiempo real. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_recognize"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:text="Reconocer"
+                android:textSize="13sp"
+                android:layout_marginStart="4dp"
+                app:backgroundTint="#E76F51"
+                app:cornerRadius="12dp" />
+        </LinearLayout>
+
+        <!-- Captura individual durante modo CAPTURING. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_take_photo"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Tomar foto"
+            android:textSize="15sp"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"
+            app:backgroundTint="#F4A261"
+            app:cornerRadius="12dp" />
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

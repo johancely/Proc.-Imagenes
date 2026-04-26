@@ -1,0 +1,25 @@
+# Android / Gradle
+.gradle/
+build/
+*/build/
+local.properties
+
+# Native build outputs
+.cxx/
+*/.cxx/
+
+# IDE
+.idea/
+*.iml
+
+# Logs / temp
+*.log
+build_output*.txt
+camera_debug*.txt
+crash_log*.txt
+diag_log*.txt
+captures/
+
+# OS
+.DS_Store
+Thumbs.db
