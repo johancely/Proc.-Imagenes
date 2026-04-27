@@ -24,19 +24,23 @@ FaceID/FaceID_Android/
 ```
 
 ## Flujo Tecnico
-1. MainActivity inicia la camara y llama funciones nativas JNI.
-2. nativeInitDetector carga cascadas Haar para rostro y ojos.
-3. nativeCaptureFace detecta, recorta y normaliza rostro; guarda muestras y variaciones.
-4. nativeTrainPCA entrena PCA (eigenfaces), proyecta muestras y guarda modelo.
-5. nativeRecognizeFace procesa cada frame en vivo, proyecta al espacio PCA y compara.
-6. Se acepta identidad solo si pasa tres filtros: distancia, score relativo y reconstruccion.
-7. En Android se aplica estabilidad temporal por varios frames para reducir falsos positivos.
+1. `MainActivity` inicializa camara, interfaz y puente JNI con el motor nativo.
+2. `nativeInitDetector` carga los clasificadores Haar de rostro y ojos.
+3. `nativeCaptureFace` detecta rostro valido, normaliza a `100x100` y genera variaciones controladas.
+4. `nativeTrainPCA` entrena el modelo Eigenfaces, guarda proyecciones y calcula umbrales adaptativos.
+5. `nativeRecognizeFace` procesa cada frame en vivo, proyecta al espacio PCA y ejecuta verificacion 1:1.
+6. La identidad se acepta solo si pasa cuatro filtros: distancia minima, distancia al centroide, score relativo y reconstruccion.
+7. En Android se aplica consenso temporal entre frames para evitar aceptaciones espurias.
 
 ## Implementacion Tecnica
-- Deteccion: Haar Cascade de OpenCV por eficiencia en tiempo real en Android.
-- Preprocesamiento: escala de grises + ecualizacion + recorte de rostro.
-- Tamano fijo 100x100: estandariza entrada para PCA y mantiene costo computacional bajo.
-- Representacion: cada rostro se vectoriza a 10,000 valores (100x100).
-- Entrenamiento: PCA calcula cara promedio y eigenvectores (eigenfaces).
-- Verificacion: distancia euclidiana en PCA + score relativo + error de reconstruccion.
-- Robustez: data augmentation (rotacion, escala, traslacion) y consenso temporal entre frames.
+- Deteccion: Haar Cascade de OpenCV para ejecucion local en tiempo real sobre Android.
+- Preprocesamiento: escala de grises, ecualizacion de histograma, recorte de rostro y normalizacion a `100x100`.
+- Representacion: cada rostro se convierte a un vector de `10,000` caracteristicas.
+- Entrenamiento PCA: calculo de cara promedio, eigenvectores (eigenfaces) y proyecciones en subespacio.
+- Calibracion 1:1: umbrales adaptativos para distancia, score relativo, reconstruccion y centroide de identidad.
+- Verificacion robusta: comparacion prioritaria con referencias base (`v0-v2`) y validacion por consenso temporal.
+
+## Cambios De Mejora (Fix 1:1)
+- Se reforzo la verificacion para reducir falsos positivos frente a rostros no registrados.
+- Se agrego filtro por distancia al centroide de identidad en el espacio PCA.
+- Se endurecio la decision en tiempo real con reglas combinadas y mayor estabilidad entre frames.

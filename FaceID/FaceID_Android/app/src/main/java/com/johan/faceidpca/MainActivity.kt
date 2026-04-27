@@ -29,7 +29,7 @@ class MainActivity : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListe
         private const val MAX_CAPTURES = 10
         private const val MIN_CAPTURES = 5
         private const val PREDICTION_WINDOW = 10
-        private const val MIN_MATCHES = 5
+        private const val MIN_MATCHES = 6
     }
 
     // Estas funciones llaman al codigo C++ donde estan OpenCV, PCA y distancia euclidiana.

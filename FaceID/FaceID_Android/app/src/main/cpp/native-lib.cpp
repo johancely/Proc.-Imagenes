@@ -28,6 +28,7 @@ struct VerificationResult {
     string bestId = "None";
     double nearestDistance = numeric_limits<double>::max();
     double meanDistance = numeric_limits<double>::max();
+    double centroidDistance = numeric_limits<double>::max();
     double reconstructionError = numeric_limits<double>::max();
     bool valid = false;
 };
@@ -38,11 +39,14 @@ static bool gDetectorReady = false;
 static Mat gAvgVec;
 static Mat gEigenVec;
 static Mat gFacesInEigen;
+static Mat gOwnerCentroid;
 static vector<string> gLoadedFacesID;
+static vector<int> gVerificationIndices;
 static bool gModelLoaded = false;
 static double gNearestThreshold = 2200.0;
 static double gReconstructionThreshold = 2600.0;
 static double gRelativeThreshold = 0.62;
+static double gCentroidThreshold = 2600.0;
 
 // Convierte jstring (Java) a std::string (C++) para manejar rutas.
 static string toString(JNIEnv* env, jstring value) {
@@ -104,23 +108,114 @@ static bool evaluateFaceVector(const Mat& faceVector, VerificationResult& result
 
     double sumDistances = 0.0;
     int validDistances = 0;
-    for (int i = 0; i < gFacesInEigen.cols; i++) {
-        double dist = norm(gFacesInEigen.col(i), projected, NORM_L2);
-        sumDistances += dist;
-        validDistances++;
-        if (dist < result.nearestDistance) {
-            result.nearestDistance = dist;
-            result.bestId = gLoadedFacesID[i];
+    if (gVerificationIndices.empty()) {
+        for (int i = 0; i < gFacesInEigen.cols; i++) {
+            double dist = norm(gFacesInEigen.col(i), projected, NORM_L2);
+            sumDistances += dist;
+            validDistances++;
+            if (dist < result.nearestDistance) {
+                result.nearestDistance = dist;
+                result.bestId = gLoadedFacesID[i];
+            }
+        }
+    } else {
+        for (int i : gVerificationIndices) {
+            if (i < 0 || i >= gFacesInEigen.cols) continue;
+            double dist = norm(gFacesInEigen.col(i), projected, NORM_L2);
+            sumDistances += dist;
+            validDistances++;
+            if (dist < result.nearestDistance) {
+                result.nearestDistance = dist;
+                result.bestId = gLoadedFacesID[i];
+            }
         }
     }
-    if (validDistances > 0) {
-        result.meanDistance = sumDistances / static_cast<double>(validDistances);
+
+    if (validDistances <= 0) {
+        return false;
+    }
+
+    result.meanDistance = sumDistances / static_cast<double>(validDistances);
+
+    if (!gOwnerCentroid.empty()) {
+        result.centroidDistance = norm(gOwnerCentroid, projected, NORM_L2);
     }
 
     Mat reconstructedCentered = gEigenVec.t() * projected;
     result.reconstructionError = norm(centered, reconstructedCentered, NORM_L2);
     result.valid = true;
     return true;
+}
+
+// Selecciona las referencias de comparacion final.
+// Usamos original + rotaciones leves para no verificar contra muestras demasiado sinteticas.
+static vector<int> buildVerificationIndices(const vector<string>& trainFacePaths) {
+    vector<int> selected;
+    selected.reserve(trainFacePaths.size());
+    for (int i = 0; i < (int)trainFacePaths.size(); i++) {
+        const string& path = trainFacePaths[i];
+        if (path.find("_v0.") != string::npos ||
+            path.find("_v1.") != string::npos ||
+            path.find("_v2.") != string::npos) {
+            selected.push_back(i);
+        }
+    }
+
+    if (!selected.empty()) return selected;
+
+    vector<int> all(trainFacePaths.size());
+    iota(all.begin(), all.end(), 0);
+    return all;
+}
+
+// Calcula el centro de la identidad en el espacio PCA.
+static Mat computeOwnerCentroid(const Mat& facesInEigen, const vector<int>& verificationIndices) {
+    if (facesInEigen.empty()) return Mat();
+
+    Mat centroid = Mat::zeros(facesInEigen.rows, 1, CV_32FC1);
+    int count = 0;
+
+    for (int idx : verificationIndices) {
+        if (idx < 0 || idx >= facesInEigen.cols) continue;
+        centroid += facesInEigen.col(idx);
+        count++;
+    }
+
+    if (count <= 0) return Mat();
+
+    centroid /= static_cast<float>(count);
+    return centroid;
+}
+
+// Umbral al centro: evita aceptar caras que se acercan a una foto puntual pero no al conjunto del duenio.
+static double computeCentroidThresholdFromModel(const Mat& facesInEigen, const Mat& centroid, const vector<int>& verificationIndices) {
+    if (facesInEigen.empty() || centroid.empty() || verificationIndices.empty()) return 2600.0;
+
+    vector<double> distances;
+    distances.reserve(verificationIndices.size());
+
+    for (int idx : verificationIndices) {
+        if (idx < 0 || idx >= facesInEigen.cols) continue;
+        distances.push_back(norm(facesInEigen.col(idx), centroid, NORM_L2));
+    }
+
+    if (distances.empty()) return 2600.0;
+
+    double sum = 0.0;
+    for (double v : distances) sum += v;
+    double mean = sum / static_cast<double>(distances.size());
+
+    double variance = 0.0;
+    for (double v : distances) {
+        double delta = v - mean;
+        variance += delta * delta;
+    }
+    variance /= static_cast<double>(distances.size());
+    double stdDev = sqrt(variance);
+
+    double p95 = percentile(distances, 0.95);
+    double adaptive = max(p95 * 1.15, mean + (2.5 * stdDev));
+    return clampDouble(adaptive, 400.0, 9000.0);
 }
 
 // Selecciona muestras representativas para calibrar umbrales.
@@ -276,6 +371,7 @@ static void saveModelStats(const string& appDir, double nearestThreshold, double
     if (!out) return;
     out << nearestThreshold << "\n" << reconstructionThreshold << "\n";
     out << relativeThreshold << "\n";
+    out << gCentroidThreshold << "\n";
 }
 
 // Data augmentation para ampliar variacion sin pedir demasiadas fotos al usuario.
@@ -375,11 +471,16 @@ Java_com_johan_faceidpca_MainActivity_nativeTrainPCA(JNIEnv* env, jobject, jstri
     gEigenVec = readEigen((int)trainFacesID.size(), appDir);
 
     vector<int> calibrationIndices = buildCalibrationIndices(trainFacesPath);
+    gVerificationIndices = buildVerificationIndices(trainFacesPath);
+    gOwnerCentroid = computeOwnerCentroid(gFacesInEigen, gVerificationIndices);
     gNearestThreshold = computeNearestThresholdFromModel(gFacesInEigen, calibrationIndices);
     gReconstructionThreshold = computeReconstructionThresholdFromTrainingImages(trainFacesPath, calibrationIndices);
     gRelativeThreshold = computeRelativeThresholdFromModel(gFacesInEigen, calibrationIndices);
+    gCentroidThreshold = computeCentroidThresholdFromModel(gFacesInEigen, gOwnerCentroid, gVerificationIndices);
     saveModelStats(appDir, gNearestThreshold, gReconstructionThreshold, gRelativeThreshold);
-    LOGI("Umbrales: nearest=%.2f recon=%.2f relative=%.3f bases=%d", gNearestThreshold, gReconstructionThreshold, gRelativeThreshold, (int)calibrationIndices.size());
+    LOGI("Umbrales: nearest=%.2f centroid=%.2f recon=%.2f relative=%.3f bases=%d refs=%d",
+         gNearestThreshold, gCentroidThreshold, gReconstructionThreshold, gRelativeThreshold,
+         (int)calibrationIndices.size(), (int)gVerificationIndices.size());
 
     gModelLoaded = !gLoadedFacesID.empty() && !gAvgVec.empty() && !gEigenVec.empty() && !gFacesInEigen.empty();
     return gModelLoaded ? JNI_TRUE : JNI_FALSE;
@@ -402,11 +503,15 @@ Java_com_johan_faceidpca_MainActivity_nativeRecognizeFace(JNIEnv* env, jobject, 
         gEigenVec = readEigen((int)ids.size(), appDir);
         // Recalcular siempre evita quedarse con umbrales viejos o demasiado estrictos.
         vector<int> calibrationIndices = buildCalibrationIndices(paths);
+        gVerificationIndices = buildVerificationIndices(paths);
+        gOwnerCentroid = computeOwnerCentroid(gFacesInEigen, gVerificationIndices);
         gNearestThreshold = computeNearestThresholdFromModel(gFacesInEigen, calibrationIndices);
         gReconstructionThreshold = computeReconstructionThresholdFromTrainingImages(paths, calibrationIndices);
         gRelativeThreshold = computeRelativeThresholdFromModel(gFacesInEigen, calibrationIndices);
+        gCentroidThreshold = computeCentroidThresholdFromModel(gFacesInEigen, gOwnerCentroid, gVerificationIndices);
         saveModelStats(appDir, gNearestThreshold, gReconstructionThreshold, gRelativeThreshold);
-        LOGI("Umbrales recargados: nearest=%.2f recon=%.2f relative=%.3f", gNearestThreshold, gReconstructionThreshold, gRelativeThreshold);
+        LOGI("Umbrales recargados: nearest=%.2f centroid=%.2f recon=%.2f relative=%.3f refs=%d",
+             gNearestThreshold, gCentroidThreshold, gReconstructionThreshold, gRelativeThreshold, (int)gVerificationIndices.size());
         gModelLoaded = !gLoadedFacesID.empty() && !gAvgVec.empty() && !gEigenVec.empty() && !gFacesInEigen.empty();
     }
 
@@ -428,24 +533,32 @@ Java_com_johan_faceidpca_MainActivity_nativeRecognizeFace(JNIEnv* env, jobject, 
     double relativeScore = verification.nearestDistance / max(1.0, verification.meanDistance);
     // Regla de decision 1: distancia absoluta contra el template del duenio.
     bool passDistanceStrict = verification.nearestDistance <= gNearestThreshold;
+    // Regla de decision 2: distancia contra el centro de tu identidad.
+    bool passCentroid = verification.centroidDistance <= gCentroidThreshold;
     // Regla de decision 2: distancia relativa contra todas las muestras entrenadas.
-    bool passRelative = relativeScore <= (gRelativeThreshold + 0.02);
-    // Regla de decision 3: error de reconstruccion dentro del espacio PCA del duenio.
-    bool passReconstruction = verification.reconstructionError <= (gReconstructionThreshold * 1.08);
+    bool passRelative = relativeScore <= gRelativeThreshold;
+    // Regla de decision 4: error de reconstruccion dentro del espacio PCA del duenio.
+    bool passReconstruction = verification.reconstructionError <= gReconstructionThreshold;
 
     if (!passDistanceStrict) {
         LOGI("Rechazado por distancia: nearest=%.2f mean=%.2f rel=%.3f thr=%.2f", verification.nearestDistance, verification.meanDistance, relativeScore, gNearestThreshold);
         return env->NewStringUTF("None");
     }
+    if (!passCentroid) {
+        LOGI("Rechazado por centro: centroid=%.2f thr=%.2f nearest=%.2f", verification.centroidDistance, gCentroidThreshold, verification.nearestDistance);
+        return env->NewStringUTF("None");
+    }
     if (!passRelative) {
-        LOGI("Rechazado por score relativo: rel=%.3f thr=%.3f nearest=%.2f mean=%.2f", relativeScore, gRelativeThreshold + 0.02, verification.nearestDistance, verification.meanDistance);
+        LOGI("Rechazado por score relativo: rel=%.3f thr=%.3f nearest=%.2f mean=%.2f", relativeScore, gRelativeThreshold, verification.nearestDistance, verification.meanDistance);
         return env->NewStringUTF("None");
     }
     if (!passReconstruction) {
-        LOGI("Rechazado por reconstruccion: recon=%.2f threshold=%.2f", verification.reconstructionError, gReconstructionThreshold * 1.08);
+        LOGI("Rechazado por reconstruccion: recon=%.2f threshold=%.2f", verification.reconstructionError, gReconstructionThreshold);
         return env->NewStringUTF("None");
     }
 
-    LOGI("Aceptado: id=%s nearest=%.2f mean=%.2f rel=%.3f recon=%.2f", verification.bestId.c_str(), verification.nearestDistance, verification.meanDistance, relativeScore, verification.reconstructionError);
+    LOGI("Aceptado: id=%s nearest=%.2f centroid=%.2f mean=%.2f rel=%.3f recon=%.2f",
+         verification.bestId.c_str(), verification.nearestDistance, verification.centroidDistance,
+         verification.meanDistance, relativeScore, verification.reconstructionError);
     return env->NewStringUTF(verification.bestId.c_str());
 }
