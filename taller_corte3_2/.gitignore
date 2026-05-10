@@ -1,0 +1,35 @@
+﻿# Ignore build artifacts
+/build/
+
+# CMake generated files
+CMakeCache.txt
+cmake_install.cmake
+CMakeFiles/
+*.cmake.user
+
+# Visual Studio artifacts
+*.sln
+*.suo
+*.user
+*.VC.db
+*.VC.opendb
+*.vcxproj*
+*.tlog
+*.recipe
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.lastbuildstate
+x64/
+Debug/
+Release/
+
+# Executables and binaries
+*.exe
+*.dll
+*.lib
+
+# OS files
+.DS_Store
+Thumbs.db
